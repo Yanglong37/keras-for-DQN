@@ -1,0 +1,39 @@
+from maze_env import environment
+from DRL_work import drl_work
+
+def run_maze():
+    step_num = 0
+    while step_num <= 1000000:
+        observation = env.reset().copy()
+        while True:
+            #刷新环境
+            env.render()
+            # 基于环境选择状态
+            action = RL.choose_action(observation)
+            # 基于环境进入下一状态
+            observation_,reward,done,to_border = env.step(action)
+
+            # 储存记忆
+            RL.store_trasition(observation,action,reward,observation_)
+            # 学习
+            if (step_num > 200) and (step_num % 5 == 0):
+                RL.learn()
+            # 状态交换
+            observation = observation_.copy()
+
+            # 退出循环
+            if done:
+                step_num += 1
+                break
+            step_num += 1
+
+    print('game over!')
+    env.destroy()
+
+
+
+if __name__ == '__main__':
+    env = environment()
+    RL = drl_work(n_actions=4)
+    env.after(100,run_maze())
+    env.mainloop()
