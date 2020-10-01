@@ -1,0 +1,134 @@
+from keras import models
+from keras import layers
+import keras
+import numpy as np
+
+seed = np.random.seed(6)
+
+class drl_work(object):
+    def __init__(self,
+                 n_actions,
+                 learning_rate = 0.1,
+                 reward_decay = 0.9,
+                 e_greedy = 0.9,
+                 replace_ilter = 500,
+                 memory_size = 1000,
+                 batch_size = 32):
+        self.n_actions = n_actions
+        self.lr = learning_rate
+        self.gamma = reward_decay
+        self.epsilon_max = e_greedy
+        self.replace_target_ilter = replace_ilter
+        self.memory_side = memory_size
+        self.bach_size = batch_size
+
+        # 定义学习总步数
+        self.lr_step_counter = 0
+
+        # 初始化记忆
+        self.memory = np.zeros((self.memory_side,2,6,6))
+        self.memory_ = np.zeros((self.memory_side,2))
+
+        #初始化predict_net和target_net网络
+        self.built_network()
+        self.change_params()
+        self.cost_loss = []
+
+    # target_net和predict_net的参数交换
+    def change_params(self):
+        self.model2.get_layer('C2_1_Params').set_weights(self.model1.get_layer('C1_1_Params').get_weights())
+        self.model2.get_layer('C2_2_Params').set_weights(self.model1.get_layer('C1_2_Params').get_weights())
+        self.model2.get_layer('D2_1_Params').set_weights(self.model1.get_layer('D1_1_Params').get_weights())
+
+
+    # 建立target_net 与 predict_net
+    def built_network(self):
+        #--------------------------------------built_predict_net---------------------------------
+        self.model1 = models.Sequential()
+        self.model1.add(layers.Conv2D(3, (2, 2), activation='relu', kernel_initializer='random_normal',input_shape=(6, 6, 1), name='C1_1_Params'))
+        self.model1.add(layers.Conv2D(3, (2, 2), activation='relu', kernel_initializer='random_normal',name='C1_2_Params'))
+        # model.add(layers.MaxPooling2D((2,2),name='M1_1_Params'))
+        self.model1.add(layers.Flatten())
+        self.model1.add(layers.Dense(4, activation='softmax', kernel_initializer='random_normal',name='D1_1_Params'))
+        self.model1.summary()
+
+        self.model1.compile(loss='mae',
+                           optimizer="adam",
+                           metrics=['acc'])
+
+
+        #-------------------------------------built_target_net------------------------------------
+        self.model2 = models.Sequential()
+        self.model2.add(layers.Conv2D(3,(2,2),activation='relu',input_shape=(6,6,1), kernel_initializer='random_normal',name='C2_1_Params'))
+        self.model2.add(layers.Conv2D(3,(2,2),activation='relu',kernel_initializer='random_normal',name='C2_2_Params'))
+        self.model2.add(layers.Flatten())
+        self.model2.add(layers.Dense(4,activation='softmax',kernel_initializer='random_normal',name='D2_1_Params'))
+
+        self.model1.compile(loss='mae',
+                           optimizer='adam',
+                           metrics=['acc'])
+
+
+    # 存储记忆库，便于抽样
+    def store_trasition(self,s,a,r,s_):
+        if not hasattr(self,'memory_counter'):
+            self.memory_counter = 0
+        index = self.memory_counter % self.memory_side
+        self.memory[index,0,:,:] = s
+        self.memory[index,1,:,:] = s_
+        self.memory_[index,:] = [a,r]
+        self.memory_counter += 1
+
+
+    # 根据状态的动作选择
+    def choose_action(self,observation):
+        observation = observation[np.newaxis,:,:,np.newaxis]
+        if np.random.uniform() < self.epsilon_max:
+            action = np.argmax(self.model1.predict(observation))
+            print(self.model1.predict(observation))
+        else:
+            action = np.random.randint(0,self.n_actions)
+        return action
+
+
+    def learn(self):
+        if self.lr_step_counter % self.replace_target_ilter == 0:
+            self.change_params()
+            print('\ntarget_net_params_replaced\n')
+        #抽取样本
+        if self.memory_counter > self.memory_side:
+            sample_index = np.random.choice(self.memory_side,self.bach_size)
+        else:
+            sample_index = np.random.choice(self.memory_counter,self.bach_size)
+        batch_memory = self.memory[sample_index,:]
+        batch_memory_ = self.memory_[sample_index,:]
+
+        batch_s = batch_memory[:,0,:,:]
+        batch_s_ = batch_memory[:,1,:,:]
+        batch_s = batch_s[:,:,:,np.newaxis]
+        batch_s_ = batch_s_[:,:,:,np.newaxis]
+
+        q_eval = self.model1.predict(batch_s)
+        q_next = self.model2.predict(batch_s_)
+        q_target = q_eval.copy()
+
+        batch_index = np.arange(self.bach_size,dtype=np.int32)
+        eval_act_index = batch_memory_[:,0].astype(int)
+        reward = batch_memory_[:,1]
+
+        q_target[batch_index,eval_act_index] = reward + self.gamma * np.max(q_next,axis=1)
+
+        #训练网络
+        history = self.model1.fit(batch_s,
+                                  q_target,
+                                  epochs = 300,
+                                  verbose = 0)
+        self.cost_loss.append(history.history['loss'])
+        self.lr_step_counter += 1
+
+if __name__ == '__main__':
+    network = drl_work(n_actions=4)
+    num = np.random.randint(0,10,size=(6,6))
+    print(network.choose_action(num))
+    num = num[np.newaxis,:,:,np.newaxis]
+    print(network.model1.predict(num))
